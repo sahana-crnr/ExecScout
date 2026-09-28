@@ -458,14 +458,12 @@ def extract_executives_from_html(
 
         title = title[:100].strip()
         seen_names.add(norm_name)
-        # If LinkedIn is not on the page, generate a direct search URL so LinkedIn is always accessible
-        encoded_q = urllib.parse.quote(f"{cand_name} {company_name}")
-        search_lk = f"https://www.linkedin.com/search/results/all/?keywords={encoded_q}"
+        # Only direct verified LinkedIn profiles are used
         executives.append({
             "name": cand_name,
             "title": title,
             "category": categorize_role(title),
-            "linkedin_url": search_lk,
+            "linkedin_url": "",
             "source_page": page_url,
             "direct_source": False,
         })

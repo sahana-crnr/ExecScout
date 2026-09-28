@@ -263,7 +263,9 @@ if submit and company_input:
         df_data = []
         for idx, e in enumerate(executives, 1):
             lk_link = e.get("linkedin_url", "")
-            method_badge = "Direct Website" if e.get("direct_source") else ("SerpApi Search" if lk_link else "Not Found")
+            if "search/results" in lk_link or "/search?" in lk_link:
+                lk_link = ""
+            method_badge = "Direct Website" if e.get("direct_source") else ("Verified Search" if lk_link else "Not Available")
             df_data.append({
                 "Name": e.get("name"),
                 "Title": e.get("title"),

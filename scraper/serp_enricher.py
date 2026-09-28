@@ -256,13 +256,11 @@ class SerpEnricher:
 
                     if c_name and is_valid_name(c_name, clean_company) and is_role_string(c_title) and norm not in seen_names:
                         seen_names.add(norm)
-                        encoded_q = urllib.parse.quote(f"{c_name} {clean_company}")
-                        search_lk = f"https://www.linkedin.com/search/results/all/?keywords={encoded_q}"
                         found_execs.append({
                             "name": c_name,
                             "title": c_title,
                             "category": categorize_role(c_title),
-                            "linkedin_url": search_lk,
+                            "linkedin_url": "",
                             "source_page": f"SerpApi Google ({domain})",
                             "direct_source": False,
                         })

@@ -92,36 +92,15 @@ def run_executive_pipeline(
                 e["domain"] = domain
                 all_executives.append(e)
 
-    import urllib.parse
+    # Ensure LinkedIn profile is strictly a verified direct profile link or empty (never a search query link)
     for e in all_executives:
-        if not e.get("linkedin_url"):
-            encoded_q = urllib.parse.quote(f"{e['name']} {company_name}")
-            e["linkedin_url"] = f"https://www.linkedin.com/search/results/all/?keywords={encoded_q}"
+        curr_link = e.get("linkedin_url", "")
+        if "search/results" in curr_link or "/search?" in curr_link:
+            e["linkedin_url"] = ""
             e["direct_source"] = False
 
-    # Targeted SerpApi LinkedIn enrichment for top executives missing a direct profile link (capped to protect quota)
     direct_linkedin_count = sum(1 for e in all_executives if e.get("linkedin_url") and e.get("direct_source"))
     report(f"Discovered {len(all_executives)} executives ({direct_linkedin_count} verified LinkedIn profiles)...", 0.75)
-
-    lookups_performed = 0
-    MAX_INDIVIDUAL_LOOKUPS = 3  # Protect the 250 free monthly queries
-
-    # Prioritize C-Suite / Founders for individual lookup
-    sorted_for_lookup = sorted(
-        all_executives,
-        key=lambda x: 0 if x.get("category") in ["CEO", "CTO", "President", "Founder"] else 1
-    )
-
-    for e in sorted_for_lookup:
-        curr_link = e.get("linkedin_url", "")
-        needs_lookup = not curr_link or "search/results" in curr_link
-        if needs_lookup and serpapi_key and lookups_performed < MAX_INDIVIDUAL_LOOKUPS:
-            lookups_performed += 1
-            report(f"Looking up LinkedIn for {e['name']} via SerpApi...", 0.85)
-            found_link = enricher.find_linkedin_for_executive(e["name"], company_name)
-            if found_link:
-                e["linkedin_url"] = found_link
-                e["direct_source"] = False
 
     # Contact discovery
     report("Extracting corporate contact info & email patterns...", 0.90)

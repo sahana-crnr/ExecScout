@@ -55,8 +55,8 @@ def print_table(executives: list[dict], domain: str):
         contact = e.get("inferred_email") or e.get("contact", "")
         contact_short = contact[:29]
         lk = e.get("linkedin_url", "")
-        # Keep full valid clickable URL without truncating
-        lk_clean = lk if lk else "N/A"
+        # Keep full valid clickable direct URL; never display search result URLs
+        lk_clean = lk if (lk and "search/results" not in lk) else "N/A"
         print(f"{name:<22} | {role:<32} | {contact_short:<30} | {lk_clean}")
     print("=" * 130 + "\n")
 
