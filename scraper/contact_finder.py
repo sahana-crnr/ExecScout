@@ -50,18 +50,25 @@ def discover_company_contacts(html_content: str, domain: str) -> dict:
 def generate_executive_email(name: str, domain: str) -> str:
     """
     Generate the standard corporate email pattern: first.last@domain.com
+    Strips internal/subdomain prefixes (e.g. corporate.flipkart.net -> flipkart.net)
     """
+    clean_domain = domain.lower()
+    for prefix in ["corporate.", "portal.", "about.", "careers.", "team.", "investors.", "blog.", "news."]:
+        if clean_domain.startswith(prefix):
+            clean_domain = clean_domain[len(prefix):]
+            break
+
     parts = re.split(r"[\s\.-]+", name.strip().lower())
     if len(parts) >= 2:
         first = re.sub(r"[^a-z]", "", parts[0])
         last = re.sub(r"[^a-z]", "", parts[-1])
         if first and last:
-            return f"{first}.{last}@{domain}"
+            return f"{first}.{last}@{clean_domain}"
     elif len(parts) == 1:
         first = re.sub(r"[^a-z]", "", parts[0])
         if first:
-            return f"{first}@{domain}"
-    return f"contact@{domain}"
+            return f"{first}@{clean_domain}"
+    return f"contact@{clean_domain}"
 
 
 def enrich_executives_with_contacts(executives: list[dict], domain: str, company_contacts: dict) -> list[dict]:

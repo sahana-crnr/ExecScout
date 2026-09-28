@@ -95,14 +95,21 @@ def clean_brand_candidate(text: str) -> str:
     cleaned = re.sub(r"[™®©]", "", text)
     parts = re.split(r"\s+[\|\-–—•:]\s+|[\|\-–—•:]", cleaned)
     first_part = parts[0].strip() if parts else cleaned.strip()
-    first_part = re.sub(r",?\s+(?:Inc\.?|LLC\.?|Corp\.?|Corporation|Ltd\.?|Co\.?)$", "", first_part, flags=re.IGNORECASE).strip()
+    first_part = re.sub(
+        r",?\s+(?:Inc\.?|LLC\.?|Corp\.?|Corporation|Ltd\.?|Co\.?|Corporate Website|Corporate Site|Official Website|Website|Corporate)$",
+        "",
+        first_part,
+        flags=re.IGNORECASE
+    ).strip()
     return first_part
 
 
 def extract_brand_name(html: str, domain: str) -> str:
     """Extract the real commercial company name from HTML metadata."""
     if not html:
-        return domain.split(".")[0].capitalize()
+        sub_tokens = [p for p in domain.split(".") if p not in ["www", "corporate", "corp", "portal", "net", "com", "io", "ai", "co", "org", "app"]]
+        base = sub_tokens[0] if sub_tokens else domain.split(".")[0]
+        return base.capitalize()
 
     soup = BeautifulSoup(html, "html.parser")
 
@@ -127,8 +134,9 @@ def extract_brand_name(html: str, domain: str) -> str:
         if 2 <= len(cand) <= 35 and not any(w in cand.lower() for w in ["welcome", "home", "the modern", "page", "official site"]):
             return cand
 
-    # Fallback to domain root
-    base = domain.split(".")[0]
+    # Fallback to domain root, skipping common corporate subdomains like 'corporate'
+    sub_tokens = [p for p in domain.split(".") if p not in ["www", "corporate", "corp", "portal", "net", "com", "io", "ai", "co", "org", "app"]]
+    base = sub_tokens[0] if sub_tokens else domain.split(".")[0]
     return base.capitalize()
 
 

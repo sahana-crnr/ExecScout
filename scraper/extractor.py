@@ -459,13 +459,117 @@ def extract_from_hydration_scripts(soup: BeautifulSoup, page_url: str, company_n
     return executives
 
 
+_SPA_BUNDLE_CACHE = {}
+
+
+def extract_from_spa_apis_and_scripts(soup: BeautifulSoup, page_url: str, company_name: str) -> list[dict]:
+    """Extract executive members from Single Page Application (Angular/React/Vue) API endpoints & script bundles."""
+    import requests
+    from urllib.parse import urljoin
+
+    executives = []
+    seen = set()
+
+    # Look for script tags with bundle names
+    script_tags = soup.find_all("script", src=True)
+    bundle_urls = []
+    for s in script_tags:
+        src = s["src"]
+        if any(b in src.lower() for b in ["main", "app", "bundle", "index", "runtime", "vendor", "chunk"]):
+            bundle_urls.append(urljoin(page_url, src))
+
+    if not bundle_urls:
+        return executives
+
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/124.0.0.0 Safari/537.36"
+        ),
+        "Accept": "application/json, text/plain, */*",
+    }
+
+    for b_url in bundle_urls[:3]:  # Top 3 application bundles
+        try:
+            if b_url in _SPA_BUNDLE_CACHE:
+                text = _SPA_BUNDLE_CACHE[b_url]
+            else:
+                resp = requests.get(b_url, headers=headers, timeout=8)
+                if resp.status_code != 200:
+                    continue
+                text = resp.text
+                _SPA_BUNDLE_CACHE[b_url] = text
+
+            endpoint_candidates = set()
+
+            # 1. Direct string literals matching /ws/... /api/... /content/... /v1/...
+            for m in re.finditer(r"['\"](/[^'\"?\s]*(?:leader|leadership|team|member|exec|board|about)[^'\"?\s]*)['\"]", text, re.IGNORECASE):
+                cand = m.group(1)
+                if not any(cand.endswith(ext) for ext in [".png", ".jpg", ".jpeg", ".css", ".svg", ".ico", ".js"]):
+                    endpoint_candidates.add(cand)
+
+            # 2. Variable prefix concatenation (e.g. da={GET_PAGE_SECTION_CONTENT:"/ws/getContents/"} ... da.GET_PAGE_SECTION_CONTENT+"ABOUT/LEADERS")
+            prefixes = re.findall(r"(\w+):\s*['\"](/[^'\"]+/)['\"]", text)
+            for var_name, pfx in prefixes:
+                for m in re.finditer(rf"{var_name}\s*\+\s*['\"]([^'\"]+)['\"]", text):
+                    endpoint_candidates.add(pfx + m.group(1))
+
+            for ep in endpoint_candidates:
+                if not any(k in ep.lower() for k in ["leader", "team", "exec", "about"]):
+                    continue
+                api_url = urljoin(page_url, ep)
+                try:
+                    api_resp = requests.get(api_url, headers=headers, timeout=6)
+                    if api_resp.status_code == 200 and "json" in api_resp.headers.get("Content-Type", ""):
+                        data = api_resp.json()
+                        items = data if isinstance(data, list) else [data]
+                        for item in items:
+                            if not isinstance(item, dict):
+                                continue
+                            name_cand = item.get("header") or item.get("name") or item.get("fullName") or item.get("personName")
+                            role_cand = item.get("subContent") or item.get("designation") or item.get("role") or item.get("position") or item.get("title")
+
+                            if not name_cand or not role_cand or not isinstance(name_cand, str) or not isinstance(role_cand, str):
+                                continue
+
+                            c_name = clean_person_name(name_cand, company_name)
+                            c_role = clean_extracted_title(role_cand, c_name)
+
+                            if is_valid_name(c_name, company_name) and is_role_string(c_role, company_name):
+                                norm = c_name.lower()
+                                if norm not in seen:
+                                    seen.add(norm)
+                                    lk = item.get("linkedin") or item.get("linkedinUrl") or item.get("linkedin_url") or ""
+                                    if not lk or "linkedin.com/in/" not in lk:
+                                        lk = generate_canonical_linkedin(c_name)
+                                        direct = False
+                                    else:
+                                        direct = True
+
+                                    executives.append({
+                                        "name": c_name,
+                                        "title": c_role,
+                                        "category": categorize_role(c_role),
+                                        "linkedin_url": lk,
+                                        "source_page": api_url,
+                                        "direct_source": direct,
+                                    })
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+    return executives
+
+
 def extract_executives_from_html(
     html_content: str,
     page_url: str = "",
     company_name: str = ""
 ) -> list[dict]:
     """
-    Extract executive names, designations, and LinkedIn profile links from HTML and JSON-LD.
+    Extract executive names, designations, and LinkedIn profile links from HTML, JSON-LD, and SPA APIs.
     Returns list of dicts: {name, title, category, linkedin_url, source_page, direct_source}.
     """
     if not html_content:
@@ -487,6 +591,14 @@ def extract_executives_from_html(
     # Strategy 0.5: Next.js / Nuxt hydration extraction
     hydration_execs = extract_from_hydration_scripts(soup, page_url, company_name)
     for e in hydration_execs:
+        norm = e["name"].lower()
+        if norm not in seen_names:
+            seen_names.add(norm)
+            executives.append(e)
+
+    # Strategy 0.6: SPA REST API & bundle discovery (Angular/React/Vue/Webpack)
+    spa_execs = extract_from_spa_apis_and_scripts(soup, page_url, company_name)
+    for e in spa_execs:
         norm = e["name"].lower()
         if norm not in seen_names:
             seen_names.add(norm)
