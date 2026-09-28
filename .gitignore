@@ -1,0 +1,18 @@
+# Environment variables & secrets
+.env
+.env.local
+
+# Python caches
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Local SerpApi Cache
+serp_cache.json
+
+# Output exports
+*.csv
+*.json
+!executives.json
+!test_pdw.json
+!test_results.json
