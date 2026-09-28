@@ -68,7 +68,7 @@ streamlit run app.py
 # Single company URL
 python run_scraper.py --url https://www.icanbwell.com/
 
-# Run against all 4 mentor sample companies
+# Run against all 4 sample companies
 python run_scraper.py --all-presets --output results.csv
 ```
 
