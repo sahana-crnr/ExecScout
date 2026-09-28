@@ -65,16 +65,35 @@ NON_PERSON_WORDS = {
     "about", "team", "leadership", "board", "directors", "executives", "software",
     "committee", "charter", "investor", "relations", "statement", "disclosure",
     "filings", "governance", "headquarters", "presentation", "report", "scale",
-    "strength", "impact", "power", "growth", "vision", "future"
+    "strength", "impact", "power", "growth", "vision", "future", "wells", "fargo",
+    "goldman", "sachs", "morgan", "stanley", "jpmorgan", "chase", "citi", "bank"
 }
-
 
 INVALID_FIRST_WORDS = {
     "the", "our", "their", "this", "that", "every", "all", "what",
     "how", "why", "when", "where", "who", "about", "meet", "join",
     "view", "read", "learn", "get", "contact", "we", "you", "program", "project",
-    "partner"
+    "partner", "expected", "announced", "named", "appointed", "promoted",
+    "elected", "former", "interim", "annual", "virtual", "global", "special",
+    "event", "session", "keynote", "webinar", "panel", "presentation", "conference"
 }
+
+STOP_TRAILING = {
+    "elected", "appointed", "named", "joins", "joined", "leaves", "left", "promoted",
+    "retires", "retired", "to", "as", "at", "by", "in", "for", "from", "with", "on",
+    "hosted", "speaks", "speaking", "participates", "participate", "presents",
+    "addresses", "steps", "step", "down", "succeeds", "succeed", "become", "becomes",
+    "announced", "expected", "welcomes", "shares", "discusses", "chairman", "ceo",
+    "president", "coo", "director", "officer", "leader", "next", "visit", "call", "board"
+}
+
+NON_EXECUTIVE_DISQUALIFIERS = [
+    "designer", "inspector", "broker", "realtor", "technician", "student",
+    "candidate", "intern", "specialist", "recruiter", "sales representative",
+    "sales rep", "coordinator", "assistant", "clerk", "operator", "mechanic",
+    "electrician", "nurse", "teacher", "fellow", "postdoc", "programmatic",
+    "contractor", "freelancer", "machinist", "consultant"
+]
 
 
 def clean_text(text: str) -> str:
@@ -82,8 +101,28 @@ def clean_text(text: str) -> str:
     return re.sub(r"\s+", " ", text).strip()
 
 
+def clean_person_name(name: str, company_name: str = "") -> str:
+    """Sanitize and strip noise, trailing transition verbs, and company tokens from person names."""
+    cleaned = re.sub(r"[^\w\s\.,-]", " ", name).strip().rstrip(":,;.-–|")
+    tokens = [w for w in re.split(r"[\s\.,:;]+", cleaned) if w]
+    if company_name:
+        co_tokens = [c.lower() for c in re.split(r"[\s\.,]+", company_name) if len(c) > 2]
+        while tokens and tokens[0].lower() in co_tokens:
+            tokens.pop(0)
+        while tokens and tokens[-1].lower() in co_tokens:
+            tokens.pop()
+    while tokens and (tokens[-1].lower() in STOP_TRAILING or len(tokens[-1]) <= 1):
+        tokens.pop()
+    if len(tokens) < 2 or len(tokens) > 4:
+        return ""
+    if tokens[0].lower() in INVALID_FIRST_WORDS:
+        return ""
+    res = " ".join(tokens)
+    return res.title() if res.isupper() else res
+
+
 def is_role_string(text: str) -> bool:
-    """Check if a string represents a job title or executive role."""
+    """Check if a string represents a bona fide executive leadership role."""
     t = text.lower().strip()
     cta_patterns = [
         "partner with", "partners with", "our partner", "become a partner",
@@ -91,34 +130,39 @@ def is_role_string(text: str) -> bool:
     ]
     if any(p in t for p in cta_patterns):
         return False
+
+    # Disqualify non-executive / junior roles
+    if any(bad in t for bad in NON_EXECUTIVE_DISQUALIFIERS):
+        if not any(k in t for k in ["chief", "vice president", "vp", "head of", "director of", "managing director"]):
+            return False
+        if any(bad in t for bad in ["programmatic", "inspector", "broker", "student", "candidate", "intern", "realtor", "sales rep"]):
+            return False
+
     return any(r in t for r in ROLE_TERMS) or bool(TARGET_ROLES_REGEX.search(text))
 
 
-
 def is_valid_name(name: str, company_name: str = "") -> bool:
-    """Validate whether a candidate string looks like an executive person name."""
-    name = clean_text(name).rstrip(":,;.-–|")
-    if not name or len(name) < 3 or len(name) > 40:
+    """Validate whether a candidate string looks like a legitimate executive person name."""
+    name = clean_person_name(name, company_name)
+    if not name or len(name) < 3 or len(name) > 35:
         return False
     if name.lower() in STOP_WORDS:
         return False
     if is_role_string(name):
         return False
-    # Check if string matches the company's brand name
     if company_name and company_name.lower() in name.lower():
         return False
 
     tokens = [re.sub(r"[^\w]", "", w.lower()) for w in re.split(r"[\s\.,:;]+", name) if w]
     tokens = [t for t in tokens if t]
-    if len(tokens) < 2 or len(tokens) > 5:
+    if len(tokens) < 2 or len(tokens) > 4:
         return False
-    if tokens[0] in INVALID_FIRST_WORDS:
+    if tokens[0] in INVALID_FIRST_WORDS or tokens[-1] in STOP_TRAILING:
         return False
     if len(tokens[-1]) < 2:
         return False
     if any(char.isdigit() for char in name):
         return False
-    # Check if any token belongs to non-person business vocabulary
     for t in tokens:
         if t in NON_PERSON_WORDS:
             return False

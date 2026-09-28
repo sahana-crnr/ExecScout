@@ -88,6 +88,17 @@ def get_base_domain(url: str) -> str:
     return domain
 
 
+def clean_brand_candidate(text: str) -> str:
+    """Clean company brand name from slogans, taglines, and trademarks."""
+    if not text:
+        return ""
+    cleaned = re.sub(r"[™®©]", "", text)
+    parts = re.split(r"\s+[\|\-–—•:]\s+|[\|\-–—•:]", cleaned)
+    first_part = parts[0].strip() if parts else cleaned.strip()
+    first_part = re.sub(r",?\s+(?:Inc\.?|LLC\.?|Corp\.?|Corporation|Ltd\.?|Co\.?)$", "", first_part, flags=re.IGNORECASE).strip()
+    return first_part
+
+
 def extract_brand_name(html: str, domain: str) -> str:
     """Extract the real commercial company name from HTML metadata."""
     if not html:
@@ -98,26 +109,23 @@ def extract_brand_name(html: str, domain: str) -> str:
     # 1. OpenGraph site name
     og_site = soup.find("meta", property="og:site_name")
     if og_site and og_site.get("content"):
-        cand = og_site["content"].strip()
-        if cand and len(cand) < 40:
+        cand = clean_brand_candidate(og_site["content"])
+        if 2 <= len(cand) <= 35:
             return cand
 
     # 2. Application name meta tag
     app_meta = soup.find("meta", attrs={"name": "application-name"})
     if app_meta and app_meta.get("content"):
-        cand = app_meta["content"].strip()
-        if cand and len(cand) < 40:
+        cand = clean_brand_candidate(app_meta["content"])
+        if 2 <= len(cand) <= 35:
             return cand
 
     # 3. Clean Title tag
     title_tag = soup.find("title")
     if title_tag and title_tag.text:
-        text = title_tag.text.strip()
-        parts = re.split(r"[:\|\-–•]", text)
-        if parts:
-            first_part = parts[0].strip()
-            if 2 <= len(first_part) <= 30 and not any(w in first_part.lower() for w in ["welcome", "home", "the modern", "page"]):
-                return first_part
+        cand = clean_brand_candidate(title_tag.text)
+        if 2 <= len(cand) <= 35 and not any(w in cand.lower() for w in ["welcome", "home", "the modern", "page", "official site"]):
+            return cand
 
     # Fallback to domain root
     base = domain.split(".")[0]
