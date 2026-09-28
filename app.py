@@ -291,7 +291,7 @@ if submit and company_input:
                     "LinkedIn Profile (Mandatory)",
                     help="Click to open executive LinkedIn profile",
                     validate=r"^https?://.*",
-                    display_text=r"https?://(?:www\.)?linkedin\.com/in/([^/]+)/?",
+                    display_text=r"https?://(?:www\.)?linkedin\.com/(?:in/([^/?#]+)|search/results/all/\?keywords=([^&]+))",
                 ),
             },
             use_container_width=True,

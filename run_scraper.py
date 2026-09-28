@@ -37,26 +37,28 @@ PRESET_URLS = [
 
 
 def print_table(executives: list[dict], domain: str):
-    """Print an ASCII table in the terminal."""
+    """Print an ASCII table in the terminal with full, clickable LinkedIn links."""
     if not executives:
         print(f"\n[!] No executives found for {domain}.\n")
         return
 
-    print(f"\n==========================================================================================")
+    print("\n" + "=" * 130)
     print(f"  EXECUTIVE INTELLIGENCE: {domain.upper()} ({len(executives)} found)")
-    print(f"==========================================================================================")
-    header = f"{'Name':<24} | {'Role':<32} | {'LinkedIn Profile':<35} | {'Contact'}"
+    print("=" * 130)
+    header = f"{'Name':<22} | {'Role':<32} | {'Contact':<30} | {'LinkedIn Profile (Clickable)'}"
     print(header)
-    print("-" * len(header))
+    print("-" * 130)
 
     for e in executives:
-        name = e.get("name", "")[:23]
+        name = e.get("name", "")[:21]
         role = e.get("title", "")[:31]
+        contact = e.get("inferred_email") or e.get("contact", "")
+        contact_short = contact[:29]
         lk = e.get("linkedin_url", "")
-        lk_short = lk.replace("https://www.linkedin.com/in/", "in/")[:34] if lk else "N/A"
-        contact = e.get("inferred_email", "")
-        print(f"{name:<24} | {role:<32} | {lk_short:<35} | {contact}")
-    print("==========================================================================================\n")
+        # Keep full valid clickable URL without truncating
+        lk_clean = lk if lk else "N/A"
+        print(f"{name:<22} | {role:<32} | {contact_short:<30} | {lk_clean}")
+    print("=" * 130 + "\n")
 
 
 def main():
