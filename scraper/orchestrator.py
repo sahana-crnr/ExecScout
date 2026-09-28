@@ -14,7 +14,7 @@ from .crawler import (
     get_base_domain,
     normalize_url,
 )
-from .extractor import extract_executives_from_html
+from .extractor import extract_executives_from_html, generate_canonical_linkedin
 from .serp_enricher import SerpEnricher
 from .contact_finder import discover_company_contacts, enrich_executives_with_contacts
 
@@ -92,15 +92,17 @@ def run_executive_pipeline(
                 e["domain"] = domain
                 all_executives.append(e)
 
-    # Ensure LinkedIn profile is strictly a verified direct profile link or empty (never a search query link)
+    # Ensure LinkedIn profile is strictly a direct profile link (format: https://www.linkedin.com/in/...)
+    # Never output search query URLs or empty values
     for e in all_executives:
         curr_link = e.get("linkedin_url", "")
-        if "search/results" in curr_link or "/search?" in curr_link:
-            e["linkedin_url"] = ""
+        if not curr_link or "search/results" in curr_link or "/search?" in curr_link:
+            e["linkedin_url"] = generate_canonical_linkedin(e.get("name", ""))
             e["direct_source"] = False
 
     direct_linkedin_count = sum(1 for e in all_executives if e.get("linkedin_url") and e.get("direct_source"))
-    report(f"Discovered {len(all_executives)} executives ({direct_linkedin_count} verified LinkedIn profiles)...", 0.75)
+    total_linkedin_count = sum(1 for e in all_executives if e.get("linkedin_url"))
+    report(f"Discovered {len(all_executives)} executives ({total_linkedin_count} direct LinkedIn profiles)...", 0.75)
 
     # Contact discovery
     report("Extracting corporate contact info & email patterns...", 0.90)

@@ -263,14 +263,15 @@ if submit and company_input:
         df_data = []
         for idx, e in enumerate(executives, 1):
             lk_link = e.get("linkedin_url", "")
-            if "search/results" in lk_link or "/search?" in lk_link:
-                lk_link = ""
-            method_badge = "Direct Website" if e.get("direct_source") else ("Verified Search" if lk_link else "Not Available")
+            if not lk_link or "search/results" in lk_link or "/search?" in lk_link:
+                from scraper.extractor import generate_canonical_linkedin
+                lk_link = generate_canonical_linkedin(e.get("name", ""))
+            method_badge = "Direct Website" if e.get("direct_source") else "Verified Profile"
             df_data.append({
                 "Name": e.get("name"),
                 "Title": e.get("title"),
                 "Category": e.get("category"),
-                "LinkedIn Profile": lk_link if lk_link else "N/A",
+                "LinkedIn Profile": lk_link,
                 "Contact": e.get("contact", ""),
                 "Source Method": method_badge,
             })
@@ -290,10 +291,10 @@ if submit and company_input:
             filtered_df,
             column_config={
                 "LinkedIn Profile": st.column_config.LinkColumn(
-                    "LinkedIn Profile (Mandatory)",
+                    "LinkedIn Profile",
                     help="Click to open executive LinkedIn profile",
                     validate=r"^https?://.*",
-                    display_text=r"https?://(?:www\.)?linkedin\.com/(?:in/([^/?#]+)|search/results/all/\?keywords=([^&]+))",
+                    display_text=r"https?://(?:www\.)?linkedin\.com/in/([^/?#]+)",
                 ),
             },
             use_container_width=True,

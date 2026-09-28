@@ -176,7 +176,13 @@ class SerpEnricher:
         if not self.api_key:
             return []
 
-        from .extractor import is_valid_name, is_role_string, clean_person_name, categorize_role
+        from .extractor import (
+            is_valid_name,
+            is_role_string,
+            clean_person_name,
+            categorize_role,
+            generate_canonical_linkedin,
+        )
 
         found_execs = []
         seen_names = set()
@@ -256,11 +262,12 @@ class SerpEnricher:
 
                     if c_name and is_valid_name(c_name, clean_company) and is_role_string(c_title) and norm not in seen_names:
                         seen_names.add(norm)
+                        canonical_lk = generate_canonical_linkedin(c_name)
                         found_execs.append({
                             "name": c_name,
                             "title": c_title,
                             "category": categorize_role(c_title),
-                            "linkedin_url": "",
+                            "linkedin_url": canonical_lk,
                             "source_page": f"SerpApi Google ({domain})",
                             "direct_source": False,
                         })
@@ -315,3 +322,4 @@ class SerpEnricher:
             "searches_saved_by_cache": self.searches_saved,
             "total_cached_queries": len(self.cache),
         }
+

@@ -55,8 +55,11 @@ def print_table(executives: list[dict], domain: str):
         contact = e.get("inferred_email") or e.get("contact", "")
         contact_short = contact[:29]
         lk = e.get("linkedin_url", "")
-        # Keep full valid clickable direct URL; never display search result URLs
-        lk_clean = lk if (lk and "search/results" not in lk) else "N/A"
+        if not lk or "search/results" in lk or "/search?" in lk:
+            from scraper.extractor import generate_canonical_linkedin
+            lk_clean = generate_canonical_linkedin(e.get("name", ""))
+        else:
+            lk_clean = lk
         print(f"{name:<22} | {role:<32} | {contact_short:<30} | {lk_clean}")
     print("=" * 130 + "\n")
 

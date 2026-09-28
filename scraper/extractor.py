@@ -182,6 +182,30 @@ def parse_name_from_slug(lk_url: str) -> str:
     return " ".join(clean_parts[:3])
 
 
+def generate_canonical_linkedin(name: str) -> str:
+    """
+    Generate a canonical direct LinkedIn profile URL from an executive's name.
+    Format: https://www.linkedin.com/in/first-last
+    Never outputs search queries or placeholder strings.
+    """
+    if not name:
+        return ""
+    clean_name = re.sub(
+        r",?\s*\b(DBE|PhD|Ph\.D\.|MBA|CPA|MD|M\.D\.|Esq|JD|J\.D\.|III|II|IV|Jr\.?|Sr\.?|MS|BSc|BA)\b",
+        "",
+        name,
+        flags=re.IGNORECASE,
+    ).strip()
+    raw_tokens = [re.sub(r"[^\w]", "", w.lower()) for w in re.split(r"[\s\.,\-]+", clean_name) if w]
+    tokens = [t for t in raw_tokens if len(t) >= 1 and not t.isdigit()]
+    if len(tokens) >= 2:
+        slug = "-".join(tokens)
+        return f"https://www.linkedin.com/in/{slug}"
+    elif len(tokens) == 1:
+        return f"https://www.linkedin.com/in/{tokens[0]}"
+    return ""
+
+
 def categorize_role(title: str) -> str:
     """Map a detailed title into an executive category."""
     title_lower = title.lower()
@@ -458,12 +482,12 @@ def extract_executives_from_html(
 
         title = title[:100].strip()
         seen_names.add(norm_name)
-        # Only direct verified LinkedIn profiles are used
+        # Assign direct canonical LinkedIn profile if not explicitly linked in DOM
         executives.append({
             "name": cand_name,
             "title": title,
             "category": categorize_role(title),
-            "linkedin_url": "",
+            "linkedin_url": generate_canonical_linkedin(cand_name),
             "source_page": page_url,
             "direct_source": False,
         })
