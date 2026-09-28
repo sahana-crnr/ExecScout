@@ -87,13 +87,13 @@ python run_scraper.py --all-presets --output results.csv
 
 ## 🏢 Tested Benchmark Companies
 
-| Company | URL | Discovery Method | Results |
-|---|---|---|---|
-| **Flipkart Group** | `https://corporate.flipkart.net/about-us` | Angular SPA REST API Engine | 11 Leaders (CEO, CHRO, CFO, SVPs) |
-| **b.well Connected Health** | `https://www.icanbwell.com/` | Direct HTML Card Walking | 11 Executives (CEO, CFO, CTO, VPs) |
-| **Performance Drone Works** | `http://www.pdw.ai/` | Direct HTML Container Extraction | 10 Executives (CEO, CTO, Founders) |
-| **Twelve CleanTech** | `http://www.twelve.co` | On-Page Leadership Filter | 4 True Executives (CEO, Founders, VPs) |
-| **ClearJet Logistics** | `http://clearjet.com` | Targeted Fallback Query | Validated Leadership |
+| Company                     | URL                                       | Discovery Method                 | Results                                |
+| --------------------------- | ----------------------------------------- | -------------------------------- | -------------------------------------- |
+| **Flipkart Group**          | `https://corporate.flipkart.net/about-us` | Angular SPA REST API Engine      | 11 Leaders (CEO, CHRO, CFO, SVPs)      |
+| **b.well Connected Health** | `https://www.icanbwell.com/`              | Direct HTML Card Walking         | 11 Executives (CEO, CFO, CTO, VPs)     |
+| **Performance Drone Works** | `http://www.pdw.ai/`                      | Direct HTML Container Extraction | 10 Executives (CEO, CTO, Founders)     |
+| **Twelve CleanTech**        | `http://www.twelve.co`                    | On-Page Leadership Filter        | 4 True Executives (CEO, Founders, VPs) |
+| **ClearJet Logistics**      | `http://clearjet.com`                     | Targeted Fallback Query          | Validated Leadership                   |
 
 ---
 
