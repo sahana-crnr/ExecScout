@@ -69,6 +69,13 @@ def main():
     parser.add_argument("--url", type=str, help="Single company URL to scrape")
     parser.add_argument("--all-presets", action="store_true", help="Run against all 4 mentor sample companies")
     parser.add_argument("--serpapi-key", type=str, default="", help="SerpApi API key (or set SERPAPI_API_KEY env var)")
+    parser.add_argument(
+        "--engine",
+        type=str,
+        default="auto",
+        choices=["auto", "google", "bing", "duckduckgo", "yahoo", "linkedin"],
+        help="Search engine for LinkedIn profile & fallback discovery (auto, google, bing, duckduckgo, yahoo, linkedin)",
+    )
     parser.add_argument("--output", type=str, default="executives.csv", help="Output CSV file path")
 
     args = parser.parse_args()
@@ -87,19 +94,34 @@ def main():
 
     all_results = []
     for u in urls_to_process:
-        print(f"\n[*] Processing: {u}...")
-        execs, stats = run_executive_pipeline(u, serpapi_key=api_key)
+        print(f"\n[*] Processing: {u} (engine={args.engine})...")
+        execs, stats = run_executive_pipeline(u, serpapi_key=api_key, search_engine=args.engine)
         print_table(execs, stats.get("domain", u))
         all_results.extend(execs)
 
     if all_results:
-        df = pd.DataFrame(all_results)
+        # Strictly format for person details
+        person_records = []
+        for e in all_results:
+            person_records.append({
+                "name": e.get("name", ""),
+                "role": e.get("title") or "Not Found",
+                "title": e.get("title") or "Not Found",
+                "category": e.get("category") or "Not Found",
+                "linkedin_profile": e.get("linkedin_url", ""),
+                "linkedin_url": e.get("linkedin_url", ""),
+                "contact": e.get("inferred_email") or e.get("contact", ""),
+                "company": e.get("company", ""),
+                "domain": e.get("domain", "")
+            })
+
+        df = pd.DataFrame(person_records)
         df.to_csv(args.output, index=False)
-        print(f"[OK] Exported {len(all_results)} executive records to {args.output}")
+        print(f"[OK] Exported {len(person_records)} executive records to {args.output}")
 
         json_out = os.path.splitext(args.output)[0] + ".json"
         with open(json_out, "w", encoding="utf-8") as f:
-            json.dump(all_results, f, indent=2, ensure_ascii=False)
+            json.dump(person_records, f, indent=2, ensure_ascii=False)
         print(f"[OK] Exported JSON to {json_out}\n")
 
 

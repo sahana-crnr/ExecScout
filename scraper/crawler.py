@@ -253,6 +253,29 @@ def discover_leadership_pages(company_url: str) -> tuple[list[str], str]:
                 if n_score >= 10:  # Only add team/leadership pages from 2nd hop
                     discovered_links[n_url] = max(discovered_links.get(n_url, 0), n_score)
 
+    # 2.5 Sitemap Check for dynamic/SPA sites if no direct leadership links were found in menus
+    if high_priority_count == 0:
+        sitemap_url = f"{parsed_home.scheme}://{parsed_home.netloc}/sitemap.xml"
+        try:
+            s_resp = requests.get(sitemap_url, headers=HEADERS, timeout=4)
+            if s_resp.status_code == 200:
+                s_urls = re.findall(r"<loc>(.*?)</loc>", s_resp.text)
+                sub_sitemaps = [u for u in s_urls if "sitemap" in u and (u.endswith(".xml") or "xml" in u)]
+                for sub in sub_sitemaps[:2]:
+                    try:
+                        sub_resp = requests.get(sub, headers=HEADERS, timeout=4)
+                        if sub_resp.status_code == 200:
+                            s_urls.extend(re.findall(r"<loc>(.*?)</loc>", sub_resp.text))
+                    except Exception:
+                        pass
+                lead_kw = ["leadership", "team", "exec", "founder", "ceo", "officer", "appoint", "board", "calendar", "summit"]
+                for u in s_urls:
+                    u_clean = u.strip()
+                    if any(k in u_clean.lower() for k in lead_kw) and u_clean not in discovered_links:
+                        discovered_links[u_clean] = 15
+        except Exception:
+            pass
+
     # Sort real discovered links by score descending (these exist on the site, so highest priority!)
     sorted_discovered = [
         url for url, s in sorted(discovered_links.items(), key=lambda item: item[1], reverse=True)

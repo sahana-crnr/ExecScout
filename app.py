@@ -134,6 +134,23 @@ with st.sidebar:
             st.rerun()
 
     st.markdown("---")
+    st.markdown("### 🌐 Search Engine")
+    engine_options = {
+        "Auto (Google + Bing Multi-Engine)": "auto",
+        "Google": "google",
+        "Bing": "bing",
+        "DuckDuckGo": "duckduckgo",
+        "Direct LinkedIn (0 API Credits)": "linkedin",
+    }
+    selected_engine_label = st.selectbox(
+        "LinkedIn & Discovery Engine",
+        options=list(engine_options.keys()),
+        index=0,
+        help="Choose the search engine used to find LinkedIn profiles and fallback leadership records.",
+    )
+    selected_engine = engine_options[selected_engine_label]
+
+    st.markdown("---")
     st.markdown("### 📋 Mentor Target Companies")
     st.markdown("""
     - `https://www.icanbwell.com/`
@@ -211,6 +228,7 @@ if submit and company_input:
         executives, stats = run_executive_pipeline(
             company_url=company_input,
             serpapi_key=serpapi_key.strip(),
+            search_engine=selected_engine,
             progress_callback=update_progress,
         )
 
@@ -269,8 +287,8 @@ if submit and company_input:
             method_badge = "Direct Website" if e.get("direct_source") else "Verified Profile"
             df_data.append({
                 "Name": e.get("name"),
-                "Title": e.get("title"),
-                "Category": e.get("category"),
+                "Role": e.get("title") or "Not Found",
+                "Category": e.get("category") or "Not Found",
                 "LinkedIn Profile": lk_link,
                 "Contact": e.get("contact", ""),
                 "Source Method": method_badge,

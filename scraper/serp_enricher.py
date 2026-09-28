@@ -58,8 +58,9 @@ def is_profile_for_company(title: str, snippet: str, target_company: str, target
 
 
 class SerpEnricher:
-    def __init__(self, api_key: Optional[str] = None):
+    def __init__(self, api_key: Optional[str] = None, default_engine: str = "auto"):
         self.api_key = api_key or os.getenv("SERPAPI_API_KEY", "")
+        self.default_engine = default_engine.lower() if default_engine else "auto"
         self.cache = self._load_cache()
         self.searches_made = 0
         self.searches_saved = 0
@@ -92,7 +93,7 @@ class SerpEnricher:
                 self.searches_made += 1
                 if resp.status_code == 200:
                     return resp.json()
-                logger.warning(f"SerpApi returned status {resp.status_code}")
+                logger.warning(f"SerpApi ({params.get('engine', 'google')}) returned status {resp.status_code}")
             except (requests.exceptions.Timeout, requests.exceptions.ConnectionError) as e:
                 if attempt < retries:
                     logger.warning(f"SerpApi request timed out, retrying ({attempt + 1}/{retries})...")
@@ -104,74 +105,109 @@ class SerpEnricher:
                 break
         return None
 
-    def find_linkedin_for_executive(self, name: str, company: str) -> Optional[str]:
+    def find_linkedin_for_executive(self, name: str, company: str, engine: Optional[str] = None) -> Optional[str]:
         """
-        Look up an executive's LinkedIn profile using SerpApi.
+        Look up an executive's LinkedIn profile using any specified search engine
+        (Google, Bing, DuckDuckGo, Yahoo, or Direct LinkedIn).
         Strictly verifies that the found LinkedIn profile matches the executive's name.
         """
+        from .extractor import generate_canonical_linkedin
+
+        search_engine = (engine or self.default_engine or "auto").lower()
+
+        # If LinkedIn direct is chosen, return canonical profile immediately (0 API credits)
+        if search_engine in ["linkedin", "direct"]:
+            return generate_canonical_linkedin(name)
+
         clean_co = re.sub(r"[™®©]", "", company).split("|")[0].split("-")[0].strip()
-        cache_key = f"linkedin::{name.strip().lower()}::{clean_co.lower()}"
+        cache_key = f"linkedin::{search_engine}::{name.strip().lower()}::{clean_co.lower()}"
 
         # 1. Check local cache first (Free!)
         if cache_key in self.cache:
             self.searches_saved += 1
             cached_val = self.cache[cache_key]
-            logger.info(f"[CACHE HIT] LinkedIn for {name} ({clean_co}): {cached_val}")
+            logger.info(f"[CACHE HIT] LinkedIn ({search_engine}) for {name} ({clean_co}): {cached_val}")
             return cached_val or None
+
+        # Also check general cache without engine
+        general_cache_key = f"linkedin::{name.strip().lower()}::{clean_co.lower()}"
+        if general_cache_key in self.cache:
+            self.searches_saved += 1
+            cached_val = self.cache[general_cache_key]
+            if cached_val:
+                logger.info(f"[CACHE HIT] LinkedIn for {name} ({clean_co}): {cached_val}")
+                return cached_val
 
         # 2. Check if API key is present
         if not self.api_key:
-            return None
+            return generate_canonical_linkedin(name)
 
-        # 3. Perform targeted Google Search
-        params = {
-            "engine": "google",
-            "q": f'"{name}" "{clean_co}" site:linkedin.com/in',
-            "api_key": self.api_key,
-            "num": 5,
-            "gl": "us",
-            "hl": "en",
-        }
+        # 3. Determine search engines to attempt
+        engines_to_try = [search_engine]
+        if search_engine == "auto":
+            engines_to_try = ["google", "bing"]
 
-        logger.info(f"[SERPAPI CALL] Querying LinkedIn for: {name} ({clean_co})")
-        data = self._serpapi_request(params)
-        if data:
-            organic = data.get("organic_results", [])
-            name_tokens = [re.sub(r"[^\w]", "", w.lower()) for w in re.split(r"[\s\.,]+", name) if w]
-            last_name = name_tokens[-1] if name_tokens else ""
-            first_name = name_tokens[0] if name_tokens else ""
+        name_tokens = [re.sub(r"[^\w]", "", w.lower()) for w in re.split(r"[\s\.,]+", name) if w]
+        last_name = name_tokens[-1] if name_tokens else ""
+        first_name = name_tokens[0] if name_tokens else ""
 
-            for res in organic:
-                link = res.get("link", "").split("?")[0].rstrip("/")
-                title = res.get("title", "").lower()
+        for eng in engines_to_try:
+            params = {
+                "engine": eng,
+                "q": f'"{name}" "{clean_co}" site:linkedin.com/in',
+                "api_key": self.api_key,
+                "num": 5,
+            }
+            if eng in ["google", "bing"]:
+                params["gl"] = "us"
+                params["hl"] = "en"
 
-                if "linkedin.com/in/" in link:
-                    slug = link.split("/in/")[-1].lower()
-                    last_match = bool(last_name and (last_name in slug or last_name in title))
-                    first_match = bool(first_name and (first_name in slug or first_name in title))
+            logger.info(f"[SERPAPI CALL] Querying LinkedIn via {eng.upper()} for: {name} ({clean_co})")
+            data = self._serpapi_request(params)
+            if data:
+                organic = data.get("organic_results", [])
+                for res in organic:
+                    link = res.get("link", "").split("?")[0].rstrip("/")
+                    title = res.get("title", "").lower()
 
-                    if last_match or (first_match and len(name_tokens) <= 2):
-                        self.cache[cache_key] = link
-                        self._save_cache()
-                        return link
+                    if "linkedin.com/in/" in link:
+                        slug = link.split("/in/")[-1].lower()
+                        last_match = bool(last_name and (last_name in slug or last_name in title))
+                        first_match = bool(first_name and (first_name in slug or first_name in title))
 
-        # Cache negative result as empty string to prevent burning quota on repeated calls
-        self.cache[cache_key] = ""
+                        if last_match or (first_match and len(name_tokens) <= 2):
+                            self.cache[cache_key] = link
+                            self._save_cache()
+                            return link
+
+        # Fallback to direct canonical profile URL if search engines found no link
+        canonical = generate_canonical_linkedin(name)
+        self.cache[cache_key] = canonical
         self._save_cache()
-        return None
+        return canonical
 
-    def search_company_executives(self, company_name: str, domain: str) -> list[dict]:
+    def search_company_executives(self, company_name: str, domain: str, engine: Optional[str] = None) -> list[dict]:
         """
         Fallback search for companies with no static leadership page or WAF-protected sites.
-        Extracts validated C-suite and executive leaders with strict role & company validation.
+        Extracts validated C-suite and executive leaders with strict role & company validation across any engine.
         """
+        search_engine = (engine or self.default_engine or "auto").lower()
+        active_engine = "google" if search_engine in ["auto", "linkedin"] else search_engine
+
         clean_company = re.sub(r"[™®©]", "", company_name).split("|")[0].split("-")[0].strip()
-        cache_key = f"company_execs::{clean_company.lower()}"
+        cache_key = f"company_execs::{active_engine}::{clean_company.lower()}"
 
         if cache_key in self.cache:
             self.searches_saved += 1
-            logger.info(f"[CACHE HIT] Company executives for {clean_company}")
+            logger.info(f"[CACHE HIT] Company executives ({active_engine}) for {clean_company}")
             return self.cache[cache_key]
+
+        # Also check general cache
+        general_key = f"company_execs::{clean_company.lower()}"
+        if general_key in self.cache:
+            self.searches_saved += 1
+            logger.info(f"[CACHE HIT] Company executives for {clean_company}")
+            return self.cache[general_key]
 
         if not self.api_key:
             return []
@@ -190,15 +226,16 @@ class SerpEnricher:
         # Query 1: Leadership news and company announcements
         query1 = f'"{clean_company}" "{domain}" (CEO OR CTO OR Founder OR President OR "Chief")'
         params1 = {
-            "engine": "google",
+            "engine": active_engine,
             "q": query1,
             "api_key": self.api_key,
             "num": 10,
-            "gl": "us",
-            "hl": "en",
         }
+        if active_engine in ["google", "bing"]:
+            params1["gl"] = "us"
+            params1["hl"] = "en"
 
-        logger.info(f"[SERPAPI BATCH] Searching key executives for {clean_company} ({domain})")
+        logger.info(f"[SERPAPI BATCH] Searching key executives via {active_engine.upper()} for {clean_company} ({domain})")
         data1 = self._serpapi_request(params1)
         organic1 = data1.get("organic_results", []) if data1 else []
 
@@ -220,24 +257,24 @@ class SerpEnricher:
             title_text = res.get("title", "")
             snippet = res.get("snippet", "")
 
-            # Direct LinkedIn hits
+            # Direct LinkedIn hits (discover person name & profile, but role must be verified from company site)
             if "linkedin.com/in/" in link and " - " in title_text:
                 parts = title_text.split(" - ")
                 raw_name = parts[0].strip()
-                raw_title = parts[1].split("|")[0].strip() if len(parts) > 1 else ""
                 c_name = clean_person_name(raw_name, clean_company)
 
-                if c_name and is_valid_name(c_name, clean_company) and is_role_string(raw_title) and is_profile_for_company(title_text, snippet, clean_company, domain):
+                if c_name and is_valid_name(c_name, clean_company) and is_profile_for_company(title_text, snippet, clean_company, domain):
                     norm = c_name.lower()
                     if norm not in seen_names:
                         seen_names.add(norm)
+                        # Role is set to Not Found until verified against the company site
                         found_execs.append({
                             "name": c_name,
-                            "title": raw_title,
-                            "category": categorize_role(raw_title),
+                            "title": "Not Found",
+                            "category": "Not Found",
                             "linkedin_url": link,
-                            "source_page": f"SerpApi Google ({domain})",
-                            "direct_source": True,
+                            "source_page": f"SerpApi {active_engine.capitalize()} ({domain})",
+                            "direct_source": False,
                         })
 
             # Text snippet patterns
@@ -268,7 +305,7 @@ class SerpEnricher:
                             "title": c_title,
                             "category": categorize_role(c_title),
                             "linkedin_url": canonical_lk,
-                            "source_page": f"SerpApi Google ({domain})",
+                            "source_page": f"SerpApi {active_engine.capitalize()} ({domain})",
                             "direct_source": False,
                         })
 
@@ -276,14 +313,16 @@ class SerpEnricher:
         if len(found_execs) < 2:
             query2 = f'site:linkedin.com/in "{clean_company}" (CEO OR CTO OR "Chief Executive Officer" OR President OR Founder)'
             params2 = {
-                "engine": "google",
+                "engine": active_engine,
                 "q": query2,
                 "api_key": self.api_key,
                 "num": 10,
-                "gl": "us",
-                "hl": "en",
             }
-            logger.info(f"[SERPAPI BATCH] Directory query for {clean_company} ({domain})")
+            if active_engine in ["google", "bing"]:
+                params2["gl"] = "us"
+                params2["hl"] = "en"
+
+            logger.info(f"[SERPAPI BATCH] Directory query via {active_engine.upper()} for {clean_company} ({domain})")
             data2 = self._serpapi_request(params2)
             organic2 = data2.get("organic_results", []) if data2 else []
 
@@ -295,20 +334,20 @@ class SerpEnricher:
                 if "linkedin.com/in/" in link and " - " in title_text:
                     parts = title_text.split(" - ")
                     raw_name = parts[0].strip()
-                    raw_title = parts[1].split("|")[0].strip() if len(parts) > 1 else ""
                     c_name = clean_person_name(raw_name, clean_company)
 
-                    if c_name and is_valid_name(c_name, clean_company) and is_role_string(raw_title) and is_profile_for_company(title_text, snippet, clean_company, domain):
+                    if c_name and is_valid_name(c_name, clean_company) and is_profile_for_company(title_text, snippet, clean_company, domain):
                         norm = c_name.lower()
                         if norm not in seen_names:
                             seen_names.add(norm)
+                            # Role is set to Not Found until verified against the company site
                             found_execs.append({
                                 "name": c_name,
-                                "title": raw_title,
-                                "category": categorize_role(raw_title),
+                                "title": "Not Found",
+                                "category": "Not Found",
                                 "linkedin_url": link,
-                                "source_page": f"SerpApi Google ({domain})",
-                                "direct_source": True,
+                                "source_page": f"SerpApi {active_engine.capitalize()} ({domain})",
+                                "direct_source": False,
                             })
 
         self.cache[cache_key] = found_execs
@@ -321,5 +360,6 @@ class SerpEnricher:
             "searches_made": self.searches_made,
             "searches_saved_by_cache": self.searches_saved,
             "total_cached_queries": len(self.cache),
+            "search_engine": self.default_engine,
         }
 

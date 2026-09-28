@@ -66,7 +66,20 @@ NON_PERSON_WORDS = {
     "committee", "charter", "investor", "relations", "statement", "disclosure",
     "filings", "governance", "headquarters", "presentation", "report", "scale",
     "strength", "impact", "power", "growth", "vision", "future", "wells", "fargo",
-    "goldman", "sachs", "morgan", "stanley", "jpmorgan", "chase", "citi", "bank"
+    "goldman", "sachs", "morgan", "stanley", "jpmorgan", "chase", "citi", "bank",
+    "careers", "career", "job", "jobs", "hiring", "openings", "recruiting",
+    "benefits", "employee", "interview", "podcast", "article", "post", "posts", "blog",
+    "calendar", "event", "events", "summit", "conference", "winner", "award", "pioneers",
+    "savors", "comes", "leaves", "opens", "takes", "unveils", "featured",
+    "drives", "principles", "safety", "plant", "designer", "inspector",
+    "candidate", "student", "intern", "broker", "realtor", "sales", "support",
+    "member", "members", "airplant", "saf", "facility", "school", "episode",
+    "recent", "topics", "tags", "archives", "categories", "author", "speakers",
+    "speaker", "moderator", "panelist", "highlights", "stories", "story", "updates", "update",
+    "lisbon", "portugal", "london", "paris", "berlin", "tokyo", "california", "texas",
+    "york", "francisco", "chicago", "boston", "seattle", "washington", "angeles",
+    "delhi", "mumbai", "bangalore", "singapore", "sydney", "toronto", "canada",
+    "europe", "asia", "america", "global", "international", "city", "county", "district"
 }
 
 INVALID_FIRST_WORDS = {
@@ -75,7 +88,9 @@ INVALID_FIRST_WORDS = {
     "view", "read", "learn", "get", "contact", "we", "you", "program", "project",
     "partner", "expected", "announced", "named", "appointed", "promoted",
     "elected", "former", "interim", "annual", "virtual", "global", "special",
-    "event", "session", "keynote", "webinar", "panel", "presentation", "conference"
+    "event", "session", "keynote", "webinar", "panel", "presentation", "conference",
+    "careers", "career", "speaker", "speakers", "dr", "mr", "ms", "mrs",
+    "recent", "related", "featured", "more", "posts", "post"
 }
 
 STOP_TRAILING = {
@@ -84,7 +99,8 @@ STOP_TRAILING = {
     "hosted", "speaks", "speaking", "participates", "participate", "presents",
     "addresses", "steps", "step", "down", "succeeds", "succeed", "become", "becomes",
     "announced", "expected", "welcomes", "shares", "discusses", "chairman", "ceo",
-    "president", "coo", "director", "officer", "leader", "next", "visit", "call", "board"
+    "president", "coo", "director", "officer", "leader", "next", "visit", "call", "board",
+    "savors", "comes", "takes", "drives", "unveils", "opens", "posts"
 }
 
 NON_EXECUTIVE_DISQUALIFIERS = [
@@ -92,13 +108,24 @@ NON_EXECUTIVE_DISQUALIFIERS = [
     "candidate", "intern", "specialist", "recruiter", "sales representative",
     "sales rep", "coordinator", "assistant", "clerk", "operator", "mechanic",
     "electrician", "nurse", "teacher", "fellow", "postdoc", "programmatic",
-    "contractor", "freelancer", "machinist", "consultant"
+    "contractor", "freelancer", "machinist", "consultant", "testing engineer",
+    "software engineer", "sales engineer"
 ]
 
 
 def clean_text(text: str) -> str:
     """Clean whitespace and formatting."""
     return re.sub(r"\s+", " ", text).strip()
+
+
+def clean_extracted_title(t: str, cand_name: str = "") -> str:
+    """Clean extracted title string and strip leading commas, punctuation, or candidate name prefix."""
+    if not t:
+        return ""
+    t = re.sub(r"^[\s,–\-—|:]+|[\s,–\-—|:]+$", "", t).strip()
+    if cand_name and t.lower().startswith(cand_name.lower()):
+        t = re.sub(r"^" + re.escape(cand_name) + r"[\s,–\-—|:]*", "", t, flags=re.IGNORECASE).strip()
+    return t
 
 
 def clean_person_name(name: str, company_name: str = "") -> str:
@@ -117,11 +144,13 @@ def clean_person_name(name: str, company_name: str = "") -> str:
         return ""
     if tokens[0].lower() in INVALID_FIRST_WORDS:
         return ""
+    if any(t.lower() in NON_PERSON_WORDS for t in tokens):
+        return ""
     res = " ".join(tokens)
     return res.title() if res.isupper() else res
 
 
-def is_role_string(text: str) -> bool:
+def is_role_string(text: str, company_name: str = "") -> bool:
     """Check if a string represents a bona fide executive leadership role."""
     t = text.lower().strip()
     cta_patterns = [
@@ -135,7 +164,13 @@ def is_role_string(text: str) -> bool:
     if any(bad in t for bad in NON_EXECUTIVE_DISQUALIFIERS):
         if not any(k in t for k in ["chief", "vice president", "vp", "head of", "director of", "managing director"]):
             return False
-        if any(bad in t for bad in ["programmatic", "inspector", "broker", "student", "candidate", "intern", "realtor", "sales rep"]):
+        if any(bad in t for bad in ["testing engineer", "sales rep", "inspector", "student", "candidate", "intern"]):
+            return False
+
+    # If the role explicitly specifies an external company (e.g. "at MIT Technology Review"), disqualify
+    if " at " in t and company_name:
+        co_slug = company_name.lower().split()[0]
+        if co_slug not in t:
             return False
 
     return any(r in t for r in ROLE_TERMS) or bool(TARGET_ROLES_REGEX.search(text))
@@ -208,6 +243,8 @@ def generate_canonical_linkedin(name: str) -> str:
 
 def categorize_role(title: str) -> str:
     """Map a detailed title into an executive category."""
+    if not title or title.lower() in ["not found", "n/a", "none", "unknown", ""]:
+        return "Not Found"
     title_lower = title.lower()
     if "ceo" in title_lower or "chief executive" in title_lower:
         return "CEO"
@@ -224,6 +261,88 @@ def categorize_role(title: str) -> str:
     elif any(k in title_lower for k in ["cfo", "coo", "cio", "cmo", "cso", "cpo", "chro", "chief", "general counsel", "corporate secretary"]):
         return "C-Suite"
     return "Executive"
+
+
+def search_role_in_company_pages(
+    person_name: str,
+    pages_html: dict[str, str],
+    company_name: str = "",
+    domain: str = ""
+) -> str:
+    """
+    Search company site HTML pages for the given executive's official designation/role.
+    Extracts accurately from company text/DOM if found, else returns 'Not Found'.
+    Never guesses from LinkedIn search headings.
+    """
+    if not person_name or not pages_html:
+        return "Not Found"
+
+    tokens = [re.escape(t) for t in person_name.split() if len(t) > 1]
+    if not tokens:
+        return "Not Found"
+
+    first_last = r"\b" + r"\s+".join(tokens) + r"\b"
+    title_pattern = (
+        r"(?:co-founder and Chief [A-Za-z\s&]+ Officer|"
+        r"Chief [A-Za-z\s&]+ Officer|"
+        r"CEO and Co-Founder|Co-Founder and CEO|"
+        r"Advisor and Co-Founder|Co-Founder and Advisor|"
+        r"CEO|CTO|CFO|COO|CIO|CMO|CSO|CPO|CRO|CHRO|"
+        r"President|Executive Chairman|Chairman and CEO|Chair and Chief Executive Officer|Chairwoman and CEO|"
+        r"Lead Independent Director|Independent Director|Board Member|Director|"
+        r"General Counsel|Corporate Secretary|Chief of Staff|"
+        r"Vice President|VP[\s,]+[A-Za-z0-9\s&,/-]+|SVP[\s,]+[A-Za-z0-9\s&,/-]+|EVP[\s,]+[A-Za-z0-9\s&,/-]+|"
+        r"Head of [A-Za-z0-9\s&,/-]+|"
+        r"Founder|Co-Founder)"
+    )
+
+    sentence_patterns = [
+        # e.g. "Speaker: Nicholas Flanders, CEO and Co-Founder" or "Nicholas Flanders, CEO and Co-Founder"
+        rf"(?:Speaker|Presenter|Panelist)?[:\s]*(?:Dr\.|Mr\.|Ms\.|Mrs\.)?\s*{first_last}[,\s\-–|]+(?:the\s+)?({title_pattern})",
+        # e.g. "Twelve Co-Founder and Chief Science Officer Dr. Etosha Cave"
+        rf"({title_pattern})\s+(?:at\s+[\w\s]+)?(?:Dr\.|Mr\.|Ms\.|Mrs\.)?\s*{first_last}",
+        # e.g. "Nicholas Flanders serves as CEO and Co-Founder"
+        rf"(?:Dr\.|Mr\.|Ms\.|Mrs\.)?\s*{first_last}\s+(?:is|serves as|acts as)\s+(?:the\s+)?({title_pattern})",
+    ]
+
+    for page_url, html in pages_html.items():
+        if not html:
+            continue
+        if person_name.lower() not in html.lower():
+            continue
+
+        soup = BeautifulSoup(html, "html.parser")
+
+        # 1. Check direct text / sentences with strict boundary
+        text = soup.get_text(separator=" ", strip=True)
+        for pat in sentence_patterns:
+            m = re.search(pat, text, re.IGNORECASE)
+            if m:
+                extracted = clean_extracted_title(m.group(1), person_name)
+                # Strip trailing event dates, months, or year stamps
+                extracted = re.sub(
+                    r"\s+(?:January|February|March|April|May|June|July|August|September|October|November|December|\d{1,2}(?:st|nd|rd|th)?|\d{4}).*$",
+                    "",
+                    extracted,
+                    flags=re.IGNORECASE
+                ).strip()
+                if company_name:
+                    extracted = re.sub(rf"^(?:at\s+)?{re.escape(company_name)}\s+", "", extracted, flags=re.IGNORECASE)
+                    extracted = re.sub(rf"\s+(?:at|of|for)\s+{re.escape(company_name)}.*$", "", extracted, flags=re.IGNORECASE)
+                if is_role_string(extracted, company_name):
+                    return extracted.strip().title() if extracted.islower() else extracted.strip()
+
+        # 2. Check immediate sibling tag if person's name is an isolated heading
+        for tag in soup.find_all(["h1", "h2", "h3", "h4", "h5", "h6", "strong", "b"]):
+            tag_text = clean_text(tag.get_text())
+            if tag_text.lower() == person_name.lower():
+                next_elem = tag.find_next_sibling(["p", "span", "h4", "h5"])
+                if next_elem:
+                    sib_text = clean_text(next_elem.get_text())
+                    if sib_text and len(sib_text) <= 55 and is_role_string(sib_text, company_name) and person_name.lower() not in sib_text.lower():
+                        return sib_text.strip().title() if sib_text.islower() else sib_text.strip()
+
+    return "Not Found"
 
 
 def extract_from_json_ld(soup: BeautifulSoup, page_url: str, company_name: str) -> list[dict]:
@@ -255,7 +374,7 @@ def extract_from_json_ld(soup: BeautifulSoup, page_url: str, company_name: str) 
 
             for p in raw_people:
                 name = clean_text(p.get("name", ""))
-                title = clean_text(p.get("jobTitle", "")) or "Executive"
+                title = clean_text(p.get("jobTitle", "")) or "Not Found"
                 if not is_valid_name(name, company_name):
                     continue
 
@@ -302,8 +421,7 @@ def extract_from_hydration_scripts(soup: BeautifulSoup, page_url: str, company_n
                     seen.add(norm)
                     lk = d.get("linkedin") or d.get("linkedinUrl") or d.get("linkedin_url") or ""
                     if not isinstance(lk, str) or "linkedin.com/in/" not in lk:
-                        encoded_q = urllib.parse.quote(f"{clean_n} {company_name}")
-                        lk = f"https://www.linkedin.com/search/results/all/?keywords={encoded_q}"
+                        lk = generate_canonical_linkedin(clean_n)
                         direct = False
                     else:
                         direct = True
@@ -386,41 +504,84 @@ def extract_executives_from_html(
             continue
         seen_links.add(lk_url)
 
-        # Walk up to find the highest ancestor containing strictly 1 linkedin link
+        # Walk up to find the single-person card container
         card = a
-        curr = a.parent
-        while curr and curr.name not in ["body", "html", "[document]"]:
-            lk_count = len(curr.find_all("a", href=lambda h: h and "linkedin.com/in/" in h))
-            if lk_count == 1:
-                card = curr
+        curr = a
+        while curr.parent and curr.parent.name not in ["body", "html", "main", "article", "section", "[document]"]:
+            parent_lk = len(curr.parent.find_all("a", href=lambda h: h and "linkedin.com/in/" in h))
+            if parent_lk == 1:
+                card = curr.parent
                 curr = curr.parent
             else:
                 break
 
         lines = [re.sub(r"\s+", " ", s).strip() for s in card.stripped_strings if s.strip()]
-        lines = [l for l in lines if l.lower() not in STOP_WORDS and len(l) <= 70]
+        lines = [l for l in lines if l.lower() not in STOP_WORDS and len(l) <= 80]
 
         cand_name = None
         cand_title = None
 
+        # Check for dedicated role / title and name tags inside the card
+        for tag in card.find_all(["h1", "h2", "h3", "h4", "h5", "h6", "strong", "b", "p", "div", "span"]):
+            t = re.sub(r"\s+", " ", tag.get_text()).strip()
+            if not t or len(t) > 75:
+                continue
+            if not cand_title and is_role_string(t, company_name):
+                cand_title = t
+            elif not cand_name and is_valid_name(t, company_name):
+                cand_name = t
+
+        # Fallback to lines inside the card
         for l in lines:
-            if is_role_string(l):
-                if not cand_title:
-                    cand_title = l
-            else:
-                words = l.split()
-                if 2 <= len(words) <= 4 and all(w[0].isupper() for w in words if w.isalpha()):
-                    if not cand_name and is_valid_name(l, company_name):
-                        cand_name = l
+            if not cand_title and is_role_string(l, company_name):
+                cand_title = l
+            elif not cand_name and is_valid_name(l, company_name):
+                cand_name = l
 
         if not cand_name:
             cand_name = parse_name_from_slug(lk_url)
 
-        if not cand_title:
-            cand_title = "Executive"
+        # Verify that lk_url actually corresponds to cand_name
+        slug = lk_url.split("/in/")[-1].split("?")[0].strip("/").lower()
+        clean_cand_tokens = [re.sub(r"[^\w]", "", t.lower()) for t in (cand_name or "").split() if len(t) > 2]
+        slug_matches_cand = any(t in slug for t in clean_cand_tokens) if clean_cand_tokens else False
+        if not slug_matches_cand:
+            # Check if another valid person in lines matches the slug
+            matched_person = None
+            for l in lines:
+                l_clean = clean_person_name(l, company_name)
+                l_tokens = [re.sub(r"[^\w]", "", t.lower()) for t in l_clean.split() if len(t) > 2]
+                if any(t in slug for t in l_tokens) and is_valid_name(l_clean, company_name):
+                    matched_person = l_clean
+                    break
+            if matched_person:
+                cand_name = matched_person
+            else:
+                lk_url = generate_canonical_linkedin(cand_name)
 
-        norm_name = cand_name.lower()
-        if norm_name not in seen_names and is_valid_name(cand_name, company_name):
+        if cand_title:
+            cand_title = clean_extracted_title(cand_title, cand_name)
+            if not is_role_string(cand_title, company_name):
+                cand_title = "Not Found"
+        else:
+            cand_title = "Not Found"
+
+        # Check if this person has external affiliation mentioned in card (e.g. "at MIT Technology Review")
+        card_full_text = card.get_text(separator=" ", strip=True)
+        if cand_name and f"{cand_name} at " in card_full_text:
+            after_at = card_full_text.split(f"{cand_name} at ")[1][:30].lower()
+            if company_name and company_name.lower() not in after_at:
+                continue
+
+        # On blog/post/event pages, require an actual verified executive role
+        is_post_or_blog = any(k in page_url.lower() for k in ["/post/", "/blog/", "/news/", "/article/", "/press/", "/event", "/calendar"])
+        if is_post_or_blog and cand_title == "Not Found":
+            continue
+
+        if cand_name:
+            cand_name = clean_person_name(cand_name, company_name)
+        norm_name = cand_name.lower() if cand_name else ""
+        if norm_name and norm_name not in seen_names and is_valid_name(cand_name, company_name):
             seen_names.add(norm_name)
             executives.append({
                 "name": cand_name,
@@ -462,25 +623,24 @@ def extract_executives_from_html(
             if elem == name_tag or name_tag in elem.descendants:
                 continue
             elem_text = clean_text(elem.get_text())
-            if elem_text and is_role_string(elem_text) and elem_text != cand_name:
-                # If title was accidentally prefixed with candidate name, strip it
-                if elem_text.lower().startswith(cand_name.lower()):
-                    elem_text = clean_text(elem_text[len(cand_name):].lstrip(" ,-–|:"))
-                if is_role_string(elem_text):
-                    title = elem_text
-                    break
+            if elem_text and is_role_string(elem_text, company_name) and elem_text != cand_name:
+                title = elem_text
+                break
 
         if not title:
             # Check if name_tag itself has role appended (e.g. "Jane Doe, CEO")
             full_header = clean_text(name_tag.get_text())
             if "," in full_header or " - " in full_header:
                 parts = re.split(r"[,–\-]\s*", full_header, maxsplit=1)
-                if len(parts) == 2 and is_role_string(parts[1]):
+                if len(parts) == 2 and is_role_string(parts[1], company_name):
                     title = clean_text(parts[1])
             if not title:
                 continue
 
-        title = title[:100].strip()
+        title = clean_extracted_title(title, cand_name)
+        if not is_role_string(title, company_name):
+            continue
+
         seen_names.add(norm_name)
         # Assign direct canonical LinkedIn profile if not explicitly linked in DOM
         executives.append({
