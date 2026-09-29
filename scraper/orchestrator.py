@@ -22,7 +22,11 @@ from .extractor import (
     categorize_role,
 )
 from .serp_enricher import SerpEnricher
-from .contact_finder import discover_company_contacts, enrich_executives_with_contacts
+from .contact_finder import (
+    discover_company_contacts,
+    enrich_executives_with_contacts,
+    enrich_executives_from_linkedin,
+)
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -147,10 +151,17 @@ def run_executive_pipeline(
 
     all_executives = enrich_executives_with_contacts(all_executives, domain, company_contacts)
 
+    # If email or contact info not found on given website, check in LinkedIn profile and extract it
+    missing_contact = [e for e in all_executives if not e.get("contact") or e.get("contact") == "Not Found"]
+    if missing_contact:
+        report(f"Checking LinkedIn profiles for public contact info ({len(missing_contact)} executives)...", 0.94)
+        all_executives = enrich_executives_from_linkedin(all_executives, enricher=enricher)
+
     stats = enricher.get_stats()
     stats["total_executives"] = len(all_executives)
     stats["direct_linkedin_count"] = sum(1 for e in all_executives if e.get("linkedin_url") and e.get("direct_source"))
     stats["serpapi_enriched_count"] = sum(1 for e in all_executives if e.get("linkedin_url") and not e.get("direct_source"))
+    stats["linkedin_contacts_found"] = sum(1 for e in all_executives if e.get("contact_source") == "LinkedIn Profile")
     stats["candidate_pages_scanned"] = len(candidate_urls)
     stats["domain"] = domain
     stats["company_name"] = company_name

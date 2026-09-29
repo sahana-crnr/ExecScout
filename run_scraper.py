@@ -113,6 +113,8 @@ def main():
                 "linkedin_url": e.get("linkedin_url", ""),
                 "contact": clean_contact,
                 "email": e.get("email") or clean_contact,
+                "phone": e.get("phone", ""),
+                "contact_source": e.get("contact_source", "Website" if clean_contact != "Not Found" else "Not Found"),
                 "company": e.get("company", ""),
                 "domain": e.get("domain", "")
             })
