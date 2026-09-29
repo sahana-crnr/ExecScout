@@ -290,7 +290,7 @@ if submit and company_input:
                 "Role": e.get("title") or "Not Found",
                 "Category": e.get("category") or "Not Found",
                 "LinkedIn Profile": lk_link,
-                "Contact": e.get("contact", ""),
+                "Contact": e.get("contact") or e.get("email") or "Not Found",
                 "Source Method": method_badge,
             })
 

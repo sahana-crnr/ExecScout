@@ -52,7 +52,7 @@ def print_table(executives: list[dict], domain: str):
     for e in executives:
         name = e.get("name", "")[:21]
         role = e.get("title", "")[:31]
-        contact = e.get("inferred_email") or e.get("contact", "")
+        contact = e.get("contact") or e.get("email") or "Not Found"
         contact_short = contact[:29]
         lk = e.get("linkedin_url", "")
         if not lk or "search/results" in lk or "/search?" in lk:
@@ -103,6 +103,7 @@ def main():
         # Strictly format for person details
         person_records = []
         for e in all_results:
+            clean_contact = e.get("contact") or e.get("email") or "Not Found"
             person_records.append({
                 "name": e.get("name", ""),
                 "role": e.get("title") or "Not Found",
@@ -110,7 +111,8 @@ def main():
                 "category": e.get("category") or "Not Found",
                 "linkedin_profile": e.get("linkedin_url", ""),
                 "linkedin_url": e.get("linkedin_url", ""),
-                "contact": e.get("inferred_email") or e.get("contact", ""),
+                "contact": clean_contact,
+                "email": e.get("email") or clean_contact,
                 "company": e.get("company", ""),
                 "domain": e.get("domain", "")
             })

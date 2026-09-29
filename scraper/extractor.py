@@ -8,6 +8,7 @@ import re
 import urllib.parse
 from typing import Optional
 from bs4 import BeautifulSoup, Tag
+from .contact_finder import clean_email, EMAIL_REGEX
 
 # Target roles to identify and extract
 TARGET_ROLES_REGEX = re.compile(
@@ -384,6 +385,12 @@ def extract_from_json_ld(soup: BeautifulSoup, page_url: str, company_name: str) 
                     same_as = [same_as]
                 lk_url = next((url for url in same_as if "linkedin.com/in/" in url), "")
 
+                # Find direct email if present
+                email_val = p.get("email")
+                if not email_val and isinstance(p.get("contactPoint"), dict):
+                    email_val = p.get("contactPoint", {}).get("email")
+                direct_email = clean_email(email_val) if isinstance(email_val, str) else ""
+
                 norm_name = name.lower()
                 if norm_name not in seen:
                     seen.add(norm_name)
@@ -394,6 +401,7 @@ def extract_from_json_ld(soup: BeautifulSoup, page_url: str, company_name: str) 
                         "linkedin_url": lk_url,
                         "source_page": page_url,
                         "direct_source": bool(lk_url),
+                        "direct_email": direct_email or "",
                     })
         except Exception:
             continue
@@ -425,6 +433,9 @@ def extract_from_hydration_scripts(soup: BeautifulSoup, page_url: str, company_n
                         direct = False
                     else:
                         direct = True
+                    email_cand = d.get("email") or d.get("mail") or d.get("contactEmail") or d.get("contact_email") or ""
+                    direct_email = clean_email(email_cand) if isinstance(email_cand, str) else ""
+
                     executives.append({
                         "name": clean_n,
                         "title": clean_t,
@@ -432,6 +443,7 @@ def extract_from_hydration_scripts(soup: BeautifulSoup, page_url: str, company_n
                         "linkedin_url": lk,
                         "source_page": page_url,
                         "direct_source": direct,
+                        "direct_email": direct_email or "",
                     })
 
         for v in d.values():
@@ -547,6 +559,9 @@ def extract_from_spa_apis_and_scripts(soup: BeautifulSoup, page_url: str, compan
                                     else:
                                         direct = True
 
+                                    email_cand = item.get("email") or item.get("contactEmail") or item.get("mail") or item.get("contact_email") or ""
+                                    direct_email = clean_email(email_cand) if isinstance(email_cand, str) else ""
+
                                     executives.append({
                                         "name": c_name,
                                         "title": c_role,
@@ -554,6 +569,7 @@ def extract_from_spa_apis_and_scripts(soup: BeautifulSoup, page_url: str, compan
                                         "linkedin_url": lk,
                                         "source_page": api_url,
                                         "direct_source": direct,
+                                        "direct_email": direct_email or "",
                                     })
                 except Exception:
                     pass
@@ -690,6 +706,22 @@ def extract_executives_from_html(
         if is_post_or_blog and cand_title == "Not Found":
             continue
 
+        # Look for direct email or mailto: link within the executive card
+        cand_email = None
+        for a_mail in card.find_all("a", href=lambda h: h and "mailto:" in h.lower()):
+            cleaned = clean_email(a_mail["href"])
+            if cleaned:
+                cand_email = cleaned
+                break
+
+        if not cand_email:
+            card_text = card.get_text(separator=" ")
+            for raw_em in EMAIL_REGEX.findall(card_text):
+                cleaned = clean_email(raw_em)
+                if cleaned:
+                    cand_email = cleaned
+                    break
+
         if cand_name:
             cand_name = clean_person_name(cand_name, company_name)
         norm_name = cand_name.lower() if cand_name else ""
@@ -702,6 +734,7 @@ def extract_executives_from_html(
                 "linkedin_url": lk_url,
                 "source_page": page_url,
                 "direct_source": True,
+                "direct_email": cand_email or "",
             })
 
     # Strategy 2: Card / Container Search (for team pages without direct LinkedIn links)
@@ -753,6 +786,22 @@ def extract_executives_from_html(
         if not is_role_string(title, company_name):
             continue
 
+        # Look for direct email or mailto: link within the container
+        cand_email = None
+        for a_mail in container.find_all("a", href=lambda h: h and "mailto:" in h.lower()):
+            cleaned = clean_email(a_mail["href"])
+            if cleaned:
+                cand_email = cleaned
+                break
+
+        if not cand_email:
+            container_text = container.get_text(separator=" ")
+            for raw_em in EMAIL_REGEX.findall(container_text):
+                cleaned = clean_email(raw_em)
+                if cleaned:
+                    cand_email = cleaned
+                    break
+
         seen_names.add(norm_name)
         # Assign direct canonical LinkedIn profile if not explicitly linked in DOM
         executives.append({
@@ -762,6 +811,7 @@ def extract_executives_from_html(
             "linkedin_url": generate_canonical_linkedin(cand_name),
             "source_page": page_url,
             "direct_source": False,
+            "direct_email": cand_email or "",
         })
 
     return executives

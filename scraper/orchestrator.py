@@ -134,11 +134,16 @@ def run_executive_pipeline(
     total_linkedin_count = sum(1 for e in all_executives if e.get("linkedin_url"))
     report(f"Discovered {len(all_executives)} executives ({total_linkedin_count} direct LinkedIn profiles)...", 0.75)
 
-    # Contact discovery
-    report("Extracting corporate contact info & email patterns...", 0.90)
-    company_contacts = {}
+    # Contact discovery: scan all crawled pages (team, contact, press, about) for real published emails
+    report("Extracting corporate contact info & emails from company pages...", 0.90)
+    all_html_chunks = []
     if homepage_html:
-        company_contacts = discover_company_contacts(homepage_html, domain)
+        all_html_chunks.append(homepage_html)
+    for p_html in pages_html.values():
+        if p_html and p_html != homepage_html:
+            all_html_chunks.append(p_html)
+    combined_html = "\n".join(all_html_chunks)
+    company_contacts = discover_company_contacts(combined_html, domain)
 
     all_executives = enrich_executives_with_contacts(all_executives, domain, company_contacts)
 
