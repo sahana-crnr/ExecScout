@@ -64,6 +64,8 @@ class SerpEnricher:
         self.cache = self._load_cache()
         self.searches_made = 0
         self.searches_saved = 0
+        self.consecutive_failures = 0
+        self.disabled = False
 
     def _load_cache(self) -> dict:
         """Load persistent JSON cache of previous SerpApi searches."""
@@ -83,25 +85,34 @@ class SerpEnricher:
         except Exception as e:
             logger.warning(f"Could not save cache: {e}")
 
-    def _serpapi_request(self, params: dict, retries: int = 2) -> Optional[dict]:
-        """Execute a SerpApi search with retry logic and 25-second timeout."""
+    def _serpapi_request(self, params: dict, retries: int = 1) -> Optional[dict]:
+        """Execute a SerpApi search with 8-second timeout and circuit breaker to prevent delays."""
+        if self.disabled:
+            return None
+
         import requests
 
         for attempt in range(retries + 1):
             try:
-                resp = requests.get("https://serpapi.com/search", params=params, timeout=25)
+                resp = requests.get("https://serpapi.com/search", params=params, timeout=8)
                 self.searches_made += 1
                 if resp.status_code == 200:
+                    self.consecutive_failures = 0
                     return resp.json()
-                logger.warning(f"SerpApi ({params.get('engine', 'google')}) returned status {resp.status_code}")
-            except (requests.exceptions.Timeout, requests.exceptions.ConnectionError) as e:
+                elif resp.status_code in [401, 403, 429]:
+                    logger.info(f"[SerpApi] Service status {resp.status_code}. Disabling API queries for this session.")
+                    self.disabled = True
+                    return None
+            except (requests.exceptions.Timeout, requests.exceptions.ConnectionError):
                 if attempt < retries:
-                    logger.warning(f"SerpApi request timed out, retrying ({attempt + 1}/{retries})...")
-                    time.sleep(2)
+                    time.sleep(1)
                 else:
-                    logger.error(f"SerpApi request failed after {retries} retries: {e}")
-            except Exception as e:
-                logger.error(f"SerpApi unexpected error: {e}")
+                    self.consecutive_failures += 1
+                    if self.consecutive_failures >= 2:
+                        logger.info("[SerpApi] Repeated timeouts detected. Falling back to direct extraction for this session.")
+                        self.disabled = True
+            except Exception:
+                self.consecutive_failures += 1
                 break
         return None
 
@@ -138,14 +149,14 @@ class SerpEnricher:
                 logger.info(f"[CACHE HIT] LinkedIn for {name} ({clean_co}): {cached_val}")
                 return cached_val
 
-        # 2. Check if API key is present
-        if not self.api_key:
+        # 2. Check if API key is present or circuit breaker is tripped
+        if self.disabled or not self.api_key:
             return generate_canonical_linkedin(name)
 
         # 3. Determine search engines to attempt
         engines_to_try = [search_engine]
         if search_engine == "auto":
-            engines_to_try = ["google", "bing"]
+            engines_to_try = ["google"]
 
         name_tokens = [re.sub(r"[^\w]", "", w.lower()) for w in re.split(r"[\s\.,]+", name) if w]
         last_name = name_tokens[-1] if name_tokens else ""

@@ -4,10 +4,14 @@ Strictly extracts real, published emails from website DOM, schema, APIs, and pag
 Never synthesizes or guesses fake email addresses.
 """
 
+import json
+import logging
 import re
 import urllib.parse
 from typing import Optional
 from bs4 import BeautifulSoup
+
+logger = logging.getLogger(__name__)
 
 EMAIL_REGEX = re.compile(r"[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+")
 PHONE_REGEX = re.compile(r"(\+?\d{1,3}[-.\s]?)?(\(?\d{3}\)?[-.\s]?)?\d{3}[-.\s]?\d{4}")
@@ -31,6 +35,7 @@ def clean_phone(phone_str: str) -> Optional[str]:
             return None
         return raw
     return None
+
 
 ASSET_EXTENSIONS = {
     ".png", ".jpg", ".jpeg", ".svg", ".gif", ".webp", ".ico", ".css", ".js", ".map", ".woff", ".woff2", ".ttf"
@@ -299,7 +304,6 @@ def extract_contact_from_linkedin_html(html_content: str) -> dict:
 
     # 3. Check JSON-LD schema
     if not found_email or not found_phone:
-        import json
         for s in soup.find_all("script", type="application/ld+json"):
             try:
                 raw_json = s.string or s.get_text() or ""
@@ -343,8 +347,7 @@ def extract_contact_from_linkedin_html(html_content: str) -> dict:
 def fetch_linkedin_contact_info(linkedin_url: str, enricher=None) -> dict:
     """
     Query an executive's LinkedIn profile for public contact info (email and phone).
-    Attempts direct fetch with realistic browser headers. If rate-limited or unavailable,
-    uses cached search engine query if enricher is provided.
+    Attempts direct fetch with realistic browser headers.
     """
     if not linkedin_url or "linkedin.com/in/" not in linkedin_url:
         return {"email": None, "phone": None}
@@ -378,7 +381,7 @@ def fetch_linkedin_contact_info(linkedin_url: str, enricher=None) -> dict:
 
     # 1. Direct fetch of profile
     try:
-        resp = requests.get(clean_url, headers=headers, timeout=6)
+        resp = requests.get(clean_url, headers=headers, timeout=5)
         if resp.status_code == 200:
             contact_res = extract_contact_from_linkedin_html(resp.text)
     except Exception:
@@ -388,30 +391,9 @@ def fetch_linkedin_contact_info(linkedin_url: str, enricher=None) -> dict:
     if not contact_res.get("email") and not contact_res.get("phone"):
         try:
             overlay_url = f"{clean_url}/overlay/contact-info/"
-            resp_overlay = requests.get(overlay_url, headers=headers, timeout=5)
+            resp_overlay = requests.get(overlay_url, headers=headers, timeout=4)
             if resp_overlay.status_code == 200:
                 contact_res = extract_contact_from_linkedin_html(resp_overlay.text)
-        except Exception:
-            pass
-
-    # 3. If still not found and enricher has valid api_key, check search snippets
-    if not contact_res.get("email") and not contact_res.get("phone") and enricher and getattr(enricher, "api_key", None):
-        try:
-            params = {
-                "engine": "google",
-                "q": f'site:linkedin.com/in/{slug} ("email" OR "phone" OR "contact" OR "@")',
-                "api_key": enricher.api_key,
-                "num": 3,
-            }
-            data = enricher._serpapi_request(params)
-            if data and "organic_results" in data:
-                matching_snippets = []
-                for r in data["organic_results"]:
-                    r_link = r.get("link", "").lower()
-                    if f"/in/{slug}" in r_link:
-                        matching_snippets.append(r.get("snippet", "") + " " + r.get("title", ""))
-                if matching_snippets:
-                    contact_res = extract_contact_from_linkedin_html(f"<html><body>{' '.join(matching_snippets)}</body></html>")
         except Exception:
             pass
 
@@ -457,4 +439,3 @@ def enrich_executives_from_linkedin(executives: list[dict], enricher=None) -> li
             exc["contact_source"] = "LinkedIn Profile"
 
     return executives
-
